@@ -10,6 +10,7 @@ import { submodule } from '../src/hook.js';
 import {
   deepSetValue,
   deepAccess,
+  mergeDeep,
 } from '../src/utils.js';
 import { getGlobal } from '../src/prebidGlobal.js';
 import { getStorageManager } from '../src/storageManager.js';
@@ -80,28 +81,42 @@ function setAudiencesToAppNexusAdUnits(adUnits, audiences) {
 
 /**
  * Pass audience data to configured bidders, using ORTB2
+ * @param {Object} bidConfig
  * @param {Object} rtdConfig
  * @param {Array} audiences
- * @return {{}} a map from bidder code to ORTB2 config
+ * @return {void}
  */
-export function setAudiencesAsBidderOrtb2(rtdConfig, audiences) {
+export function setAudiencesAsBidderOrtb2(bidConfig, rtdConfig, audiences) {
   const bidders = deepAccess(rtdConfig, 'params.bidders');
   if (!bidders || bidders.length === 0 || !audiences || audiences.length === 0) return;
 
-  const keywords = audiences.map(
+  const agOrtb2 = {};
+
+  const agKeywords = audiences.map(
     (audienceId) => `perid=${audienceId}`
   ).join(',');
+  deepSetValue(agOrtb2, 'user.keywords', agKeywords);
 
-  config.mergeBidderConfig({
-    bidders: bidders,
-    config: {
-      ortb2: {
-        site: {
-          keywords,
-        }
-      }
+  // Is this correct?
+  const agUserData = [
+    {
+      id: String(AG_TCF_ID),
+      name: 'airgrid',
+      segment: audiences.map((audienceId) => {
+        return {
+          id: audienceId,
+          name: `audience_${audienceId}`,
+          value: audienceId,
+        };
+      })
     }
-  })
+  ]
+  deepSetValue(agOrtb2, 'user.data', agUserData);
+
+  const bidderConfig = Object.fromEntries(
+    bidders.map((bidder) => [bidder, agOrtb2])
+  )
+  mergeDeep(bidConfig?.ortb2Fragments?.bidder, bidderConfig)
 }
 
 export function setAudiencesUsingAppNexusAuctionKeywords(audiences) {
@@ -141,7 +156,7 @@ export function passAudiencesToBidders(
   const audiences = getMatchedAudiencesFromStorage();
   if (audiences.length > 0) {
     setAudiencesUsingAppNexusAuctionKeywords(audiences);
-    setAudiencesAsBidderOrtb2(rtdConfig, audiences)
+    setAudiencesAsBidderOrtb2(bidConfig, rtdConfig, audiences)
     if (adUnits) {
       setAudiencesToAppNexusAdUnits(adUnits, audiences);
     }
